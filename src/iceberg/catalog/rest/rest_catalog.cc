@@ -56,13 +56,14 @@ namespace {
 /// iceberg rest spec.
 std::unordered_set<Endpoint> GetDefaultEndpoints() {
   return {
-      Endpoint::ListNamespaces(),  Endpoint::GetNamespaceProperties(),
-      Endpoint::CreateNamespace(), Endpoint::UpdateNamespace(),
-      Endpoint::DropNamespace(),   Endpoint::ListTables(),
-      Endpoint::LoadTable(),       Endpoint::CreateTable(),
-      Endpoint::UpdateTable(),     Endpoint::DeleteTable(),
-      Endpoint::RenameTable(),     Endpoint::RegisterTable(),
-      Endpoint::ReportMetrics(),   Endpoint::CommitTransaction(),
+      Endpoint::ListNamespaces(),    Endpoint::GetNamespaceProperties(),
+      Endpoint::CreateNamespace(),   Endpoint::UpdateNamespace(),
+      Endpoint::DropNamespace(),     Endpoint::ListTables(),
+      Endpoint::LoadTable(),         Endpoint::CreateTable(),
+      Endpoint::UpdateTable(),       Endpoint::DeleteTable(),
+      Endpoint::RenameTable(),       Endpoint::RegisterTable(),
+      Endpoint::ReportMetrics(),     Endpoint::SubmitTableScanPlan(),
+      Endpoint::CommitTransaction(),
   };
 }
 
@@ -501,6 +502,17 @@ Result<std::shared_ptr<Table>> RestCatalog::RegisterTable(
   return Table::Make(identifier, std::move(load_result.metadata),
                      std::move(load_result.metadata_location), file_io_,
                      shared_from_this());
+}
+
+Result<std::string> RestCatalog::SubmitTableScanPlan(const TableIdentifier& identifier,
+                                                     const std::string& payload) {
+  ICEBERG_ENDPOINT_CHECK(supported_endpoints_, Endpoint::SubmitTableScanPlan());
+  ICEBERG_ASSIGN_OR_RAISE(auto path, paths_->Plan(identifier));
+  ICEBERG_ASSIGN_OR_RAISE(
+      const auto response,
+      client_->Post(path, payload, /*headers=*/{}, *TableErrorHandler::Instance(),
+                    *catalog_session_));
+  return response.body();
 }
 
 }  // namespace iceberg::rest

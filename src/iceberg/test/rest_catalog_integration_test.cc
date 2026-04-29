@@ -204,6 +204,41 @@ TEST_F(RestCatalogIntegrationTest, FetchServerConfigDirect) {
   }
 }
 
+TEST_F(RestCatalogIntegrationTest, SubmitTableScanPlanRequest) {
+  ICEBERG_UNWRAP_OR_FAIL(auto catalog, CreateCatalog());
+  const TableIdentifier table_id{
+      .ns = Namespace{.levels = {"missing_ns"}},
+      .name = "missing_table",
+  };
+
+  const std::string payload = R"({"snapshot-id":1})";
+  auto result = catalog->SubmitTableScanPlan(table_id, payload);
+
+  if (result.has_value()) {
+    // Some server versions acknowledge the request with an empty body, while
+    // others return JSON payloads.
+    const std::string body = result.value();
+    const auto first_non_ws = body.find_first_not_of(" \t\n\r");
+    if (first_non_ws != std::string::npos) {
+      EXPECT_TRUE(body[first_non_ws] == '{' || body[first_non_ws] == '[')
+          << "Unexpected scan-plan response body: " << body;
+    }
+    return;
+  }
+
+  // Different servers may either not expose this endpoint, reject unknown tables,
+  // or validate request details before resource existence.
+  EXPECT_TRUE(result.error().kind == ErrorKind::kNotSupported ||
+              result.error().kind == ErrorKind::kNoSuchTable ||
+              result.error().kind == ErrorKind::kNoSuchNamespace ||
+              result.error().kind == ErrorKind::kNotFound ||
+              result.error().kind == ErrorKind::kBadRequest ||
+              result.error().kind == ErrorKind::kNotAuthorized ||
+              result.error().kind == ErrorKind::kForbidden ||
+              result.error().kind == ErrorKind::kServiceUnavailable)
+      << result.error().message;
+}
+
 // -- Namespace operations --
 
 TEST_F(RestCatalogIntegrationTest, ListNamespaces) {

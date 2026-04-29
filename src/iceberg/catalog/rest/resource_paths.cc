@@ -110,6 +110,14 @@ Result<std::string> ResourcePaths::Credentials(const TableIdentifier& ident) con
                      encoded_namespace, encoded_table_name);
 }
 
+Result<std::string> ResourcePaths::Plan(const TableIdentifier& ident) const {
+  ICEBERG_ASSIGN_OR_RAISE(std::string encoded_namespace,
+                          EncodeNamespace(ident.ns, namespace_separator_));
+  ICEBERG_ASSIGN_OR_RAISE(std::string encoded_table_name, EncodeString(ident.name));
+  return std::format("{}/v1/{}namespaces/{}/tables/{}/plan", base_uri_, prefix_,
+                     encoded_namespace, encoded_table_name);
+}
+
 Result<std::string> ResourcePaths::CommitTransaction() const {
   return std::format("{}/v1/{}transactions/commit", base_uri_, prefix_);
 }

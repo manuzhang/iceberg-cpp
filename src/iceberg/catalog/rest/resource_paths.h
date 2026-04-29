@@ -80,6 +80,10 @@ class ICEBERG_REST_EXPORT ResourcePaths {
   /// endpoint path.
   Result<std::string> Credentials(const TableIdentifier& ident) const;
 
+  /// \brief Get the /v1/{prefix}/namespaces/{namespace}/tables/{table}/plan endpoint
+  /// path.
+  Result<std::string> Plan(const TableIdentifier& ident) const;
+
   /// \brief Get the /v1/{prefix}/transactions/commit endpoint path.
   Result<std::string> CommitTransaction() const;
 

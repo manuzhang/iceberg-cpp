@@ -99,6 +99,14 @@ class ICEBERG_REST_EXPORT RestCatalog : public Catalog,
       const TableIdentifier& identifier,
       const std::string& metadata_file_location) override;
 
+  /// \brief Submit a table scan plan payload to the catalog scan-planning endpoint.
+  ///
+  /// \param identifier a table identifier
+  /// \param payload serialized JSON payload for scan planning
+  /// \return the raw response body returned by the catalog service
+  Result<std::string> SubmitTableScanPlan(const TableIdentifier& identifier,
+                                          const std::string& payload);
+
  private:
   RestCatalog(RestCatalogProperties config, std::shared_ptr<FileIO> file_io,
               std::unique_ptr<HttpClient> client, std::unique_ptr<ResourcePaths> paths,

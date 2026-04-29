@@ -19,6 +19,8 @@
 
 #include "iceberg/catalog/rest/endpoint.h"
 
+#include <vector>
+
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
@@ -136,6 +138,11 @@ TEST(EndpointTest, TableEndpoints) {
   EXPECT_EQ(table_credentials.method(), HttpMethod::kGet);
   EXPECT_EQ(table_credentials.path(),
             "/v1/{prefix}/namespaces/{namespace}/tables/{table}/credentials");
+
+  auto submit_scan_plan = Endpoint::SubmitTableScanPlan();
+  EXPECT_EQ(submit_scan_plan.method(), HttpMethod::kPost);
+  EXPECT_EQ(submit_scan_plan.path(),
+            "/v1/{prefix}/namespaces/{namespace}/tables/{table}/plan");
 }
 
 // Test predefined transaction endpoints
@@ -239,9 +246,10 @@ TEST(EndpointTest, FromStringInvalid) {
 TEST(EndpointTest, StringRoundTrip) {
   // Create various endpoints and verify they survive string round-trip
   std::vector<Endpoint> endpoints = {
-      Endpoint::ListNamespaces(),  Endpoint::GetNamespaceProperties(),
-      Endpoint::CreateNamespace(), Endpoint::LoadTable(),
-      Endpoint::CreateTable(),     Endpoint::DeleteTable(),
+      Endpoint::ListNamespaces(),      Endpoint::GetNamespaceProperties(),
+      Endpoint::CreateNamespace(),     Endpoint::LoadTable(),
+      Endpoint::CreateTable(),         Endpoint::DeleteTable(),
+      Endpoint::SubmitTableScanPlan(),
   };
 
   for (const auto& original : endpoints) {

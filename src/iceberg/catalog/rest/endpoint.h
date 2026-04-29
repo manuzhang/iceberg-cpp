@@ -122,6 +122,9 @@ class ICEBERG_REST_EXPORT Endpoint {
     return {HttpMethod::kGet,
             "/v1/{prefix}/namespaces/{namespace}/tables/{table}/credentials"};
   }
+  static Endpoint SubmitTableScanPlan() {
+    return {HttpMethod::kPost, "/v1/{prefix}/namespaces/{namespace}/tables/{table}/plan"};
+  }
 
   // Transaction endpoints
   static Endpoint CommitTransaction() {
