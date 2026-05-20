@@ -436,6 +436,78 @@ TEST_F(ParquetReaderTest, ReadMetadataOnlyProjection) {
   ASSERT_NO_FATAL_FAILURE(VerifyNextBatch(*reader, kExpectedJson));
 }
 
+TEST_F(ParquetReaderTest, ReadNestedUnknownProjection) {
+  temp_parquet_file_ = "nested_unknown.parquet";
+  auto write_schema = std::make_shared<Schema>(std::vector<SchemaField>{
+      SchemaField::MakeOptional(1, "profile",
+                                std::make_shared<StructType>(std::vector<SchemaField>{
+                                    SchemaField::MakeOptional(2, "name", string()),
+                                    SchemaField::MakeOptional(3, "mystery", int32()),
+                                })),
+      SchemaField::MakeOptional(
+          4, "mysteries",
+          std::make_shared<ListType>(SchemaField::MakeOptional(5, "element", int32()))),
+      SchemaField::MakeOptional(
+          6, "properties",
+          std::make_shared<MapType>(SchemaField::MakeRequired(7, "key", string()),
+                                    SchemaField::MakeOptional(8, "value", int32()))),
+      SchemaField::MakeOptional(9, "wrapper",
+                                std::make_shared<StructType>(std::vector<SchemaField>{
+                                    SchemaField::MakeOptional(10, "mystery", int32()),
+                                })),
+  });
+  auto read_schema = std::make_shared<Schema>(std::vector<SchemaField>{
+      SchemaField::MakeOptional(1, "profile",
+                                std::make_shared<StructType>(std::vector<SchemaField>{
+                                    SchemaField::MakeOptional(2, "name", string()),
+                                    SchemaField::MakeOptional(3, "mystery", unknown()),
+                                })),
+      SchemaField::MakeOptional(
+          4, "mysteries",
+          std::make_shared<ListType>(SchemaField::MakeOptional(5, "element", unknown()))),
+      SchemaField::MakeOptional(
+          6, "properties",
+          std::make_shared<MapType>(SchemaField::MakeRequired(7, "key", string()),
+                                    SchemaField::MakeOptional(8, "value", unknown()))),
+      SchemaField::MakeOptional(9, "wrapper",
+                                std::make_shared<StructType>(std::vector<SchemaField>{
+                                    SchemaField::MakeOptional(10, "mystery", unknown()),
+                                })),
+  });
+
+  ArrowSchema arrow_c_schema;
+  ASSERT_THAT(ToArrowSchema(*write_schema, &arrow_c_schema), IsOk());
+  auto arrow_type = ::arrow::ImportType(&arrow_c_schema).ValueOrDie();
+  auto array = ::arrow::json::ArrayFromJSONString(arrow_type,
+                                                  R"([
+                     {"profile": {"name": "Person0", "mystery": 10}, "mysteries": [1, 2], "properties": [["a", 100], ["b", 200]], "wrapper": {"mystery": 300}},
+                     {"profile": {"name": "Person1", "mystery": null}, "mysteries": [], "properties": [], "wrapper": {"mystery": null}}
+                   ])")
+                   .ValueOrDie();
+
+  WriterProperties writer_properties;
+  writer_properties.Set(WriterProperties::kParquetCompression,
+                        std::string("uncompressed"));
+  ASSERT_THAT(WriteArray(array, {.path = temp_parquet_file_,
+                                 .schema = write_schema,
+                                 .io = file_io_,
+                                 .properties = std::move(writer_properties)}),
+              IsOk());
+
+  ICEBERG_UNWRAP_OR_FAIL(
+      auto reader,
+      ReaderFactoryRegistry::Open(
+          FileFormatType::kParquet,
+          {.path = temp_parquet_file_, .io = file_io_, .projection = read_schema}));
+
+  ASSERT_NO_FATAL_FAILURE(VerifyNextBatch(*reader,
+                                          R"([
+        {"profile": {"name": "Person0", "mystery": null}, "mysteries": [null, null], "properties": [["a", null], ["b", null]], "wrapper": {"mystery": null}},
+        {"profile": {"name": "Person1", "mystery": null}, "mysteries": [], "properties": [], "wrapper": {"mystery": null}}
+      ])"));
+  ASSERT_NO_FATAL_FAILURE(VerifyExhausted(*reader));
+}
+
 class ParquetReadWrite : public ::testing::Test {
  protected:
   static void SetUpTestSuite() { parquet::RegisterAll(); }

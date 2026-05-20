@@ -1054,6 +1054,20 @@ TEST_F(UpdateSchemaTest, UpdateColumnFloatToDouble) {
   EXPECT_EQ(*field_opt->get().type(), *float64());
 }
 
+TEST_F(UpdateSchemaTest, UpdateColumnUnknownToPrimitive) {
+  ICEBERG_UNWRAP_OR_FAIL(auto update, table_->NewUpdateSchema());
+  update->AddColumn("mystery", unknown(), "A null-only placeholder");
+  update->UpdateColumn("mystery", string());
+
+  ICEBERG_UNWRAP_OR_FAIL(auto result, update->Apply());
+
+  ICEBERG_UNWRAP_OR_FAIL(auto field_opt, result.schema->FindFieldByName("mystery"));
+  ASSERT_TRUE(field_opt.has_value());
+  EXPECT_EQ(*field_opt->get().type(), *string());
+  EXPECT_TRUE(field_opt->get().optional());
+  EXPECT_EQ(field_opt->get().doc(), "A null-only placeholder");
+}
+
 TEST_F(UpdateSchemaTest, UpdateColumnSameType) {
   ICEBERG_UNWRAP_OR_FAIL(auto update, table_->NewUpdateSchema());
   update->AddColumn("id", int32());

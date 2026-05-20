@@ -426,6 +426,10 @@ bool IsPromotionAllowed(const std::shared_ptr<Type>& from_type,
   TypeId from_id = from_type->type_id();
   TypeId to_id = to_type->type_id();
 
+  if (from_id == TypeId::kUnknown) {
+    return true;
+  }
+
   // int -> long
   if (from_id == TypeId::kInt && to_id == TypeId::kLong) {
     return true;

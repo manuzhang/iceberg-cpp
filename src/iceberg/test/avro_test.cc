@@ -890,6 +890,31 @@ TEST_P(AvroWriterTest, WriteOptionalFields) {
   VerifyWrittenData(test_data);
 }
 
+TEST_P(AvroWriterTest, WriteNestedUnknownFields) {
+  auto schema = std::make_shared<iceberg::Schema>(std::vector<SchemaField>{
+      SchemaField::MakeRequired(1, "id", std::make_shared<IntType>()),
+      SchemaField::MakeOptional(2, "profile",
+                                std::make_shared<StructType>(std::vector<SchemaField>{
+                                    SchemaField::MakeOptional(3, "mystery", unknown()),
+                                })),
+      SchemaField::MakeOptional(
+          4, "mysteries",
+          std::make_shared<ListType>(SchemaField::MakeOptional(5, "element", unknown()))),
+      SchemaField::MakeOptional(
+          6, "properties",
+          std::make_shared<MapType>(SchemaField::MakeRequired(7, "key", string()),
+                                    SchemaField::MakeOptional(8, "value", unknown())))});
+
+  std::string test_data = R"([
+    [1, [null], [null, null], [["a", null], ["b", null]]],
+    [2, null, [], []],
+    [3, [null], null, null]
+  ])";
+
+  WriteAvroFile(schema, test_data);
+  VerifyWrittenData(test_data);
+}
+
 TEST_P(AvroWriterTest, WriteLargeDataset) {
   auto schema = std::make_shared<iceberg::Schema>(std::vector<SchemaField>{
       SchemaField::MakeRequired(1, "id", std::make_shared<LongType>()),
