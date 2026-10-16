@@ -32,6 +32,9 @@
 namespace iceberg {
 
 /// \brief Snapshots metadata table.
+///
+/// Scans return every known snapshot as one row, so this table does not support time
+/// travel.
 class ICEBERG_EXPORT SnapshotsTable : public MetadataTable {
  public:
   static Result<std::unique_ptr<SnapshotsTable>> Make(std::shared_ptr<Table> table);
@@ -42,13 +45,12 @@ class ICEBERG_EXPORT SnapshotsTable : public MetadataTable {
 
   const std::shared_ptr<Schema>& schema() const override;
 
-  /// \brief Scan all snapshots as rows.
-  ///
-  /// The snapshots table always returns every known snapshot.
-  Result<ArrowArrayStream> Scan() override;
-
  private:
   explicit SnapshotsTable(std::shared_ptr<Table> table);
+
+  Result<std::unique_ptr<MetadataTableScan>> MakeScan(
+      std::shared_ptr<TableMetadata> metadata, std::shared_ptr<FileIO> io,
+      internal::TableScanContext context) const override;
 };
 
 }  // namespace iceberg

@@ -167,6 +167,7 @@ class StrictMetricsEvaluator;
 
 /// \brief Scan task.
 class ChangelogScanTask;
+class DataTask;
 class FileScanTask;
 class ScanTask;
 
@@ -282,6 +283,8 @@ class PositionDeleteIndex;
 /// \brief Metadata tables.
 class HistoryTable;
 class MetadataTable;
+class MetadataTableScan;
+class MetadataTableScanBuilder;
 class SnapshotsTable;
 
 /// \brief Table encryption
