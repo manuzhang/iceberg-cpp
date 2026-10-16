@@ -24,19 +24,21 @@
 
 #include <concepts>
 #include <memory>
-#include <string>
 #include <utility>
-#include <variant>
 
-#include "iceberg/arrow_c_data.h"
 #include "iceberg/iceberg_export.h"
+#include "iceberg/inspect/metadata_table_scan.h"
 #include "iceberg/result.h"
 #include "iceberg/type_fwd.h"
-#include "iceberg/util/timepoint.h"
 
 namespace iceberg {
 
 /// \brief Base interface for an Iceberg metadata table.
+///
+/// A metadata table exposes the source table's metadata as rows, read through a scan:
+/// NewScan() configures the columns and, for tables that support time travel, the
+/// snapshot; the scan plans DataTasks; and each task returns StructLike rows that a
+/// caller consumes directly. ReadMetadataTable() reads a whole scan as Arrow batches.
 class ICEBERG_EXPORT MetadataTable {
  public:
   /// \brief Supported metadata table kinds.
@@ -44,9 +46,6 @@ class ICEBERG_EXPORT MetadataTable {
     kSnapshots,
     kHistory,
   };
-
-  /// \brief Maximum number of rows emitted in each Arrow batch.
-  static constexpr int64_t kBatchSize = 1024;
 
   /// \brief Create a metadata table of the requested concrete type.
   ///
@@ -70,61 +69,31 @@ class ICEBERG_EXPORT MetadataTable {
   /// \brief Return the source table whose metadata is exposed.
   const std::shared_ptr<Table>& source_table() const;
 
-  /// \brief Return whether this metadata table supports time travel.
+  /// \brief Return whether scans of this table accept a snapshot selection.
   virtual bool supports_time_travel() const noexcept;
 
-  /// \brief Scan the metadata table without time travel.
+  /// \brief Create a builder for a scan of this metadata table.
   ///
-  /// The caller owns the returned stream and must invoke its `release` callback
-  /// when the stream is no longer needed.
-  virtual Result<ArrowArrayStream> Scan() = 0;
+  /// The builder captures the source table's current metadata. This metadata table must
+  /// outlive the builder.
+  std::unique_ptr<MetadataTableScanBuilder> NewScan() const;
 
  protected:
   explicit MetadataTable(std::shared_ptr<Table> source_table);
 
  private:
+  friend class MetadataTableScanBuilder;
+
+  /// \brief Create a scan of this table.
+  ///
+  /// \param metadata Source table metadata captured by NewScan().
+  /// \param io FileIO of the source table.
+  /// \param context Scan options validated by the builder.
+  virtual Result<std::unique_ptr<MetadataTableScan>> MakeScan(
+      std::shared_ptr<TableMetadata> metadata, std::shared_ptr<FileIO> io,
+      internal::TableScanContext context) const = 0;
+
   std::shared_ptr<Table> source_table_;
-};
-
-/// \brief Snapshot selection parameters for a time-travel scan.
-struct SnapshotSelection {
-  /// \brief Select the current snapshot, a snapshot ID, or an as-of timestamp.
-  ///
-  /// std::monostate selects the current snapshot.
-  std::variant<std::monostate, int64_t, TimePointMs> snapshot;
-
-  /// \brief Resolve the snapshot relative to this branch or tag.
-  ///
-  /// An empty string uses the main branch.
-  std::string ref_name;
-};
-
-/// \brief Base interface for metadata tables that support time travel.
-///
-/// Keeping snapshot selection on this capability-specific interface prevents it from
-/// being exposed by metadata tables that do not support time travel.
-class ICEBERG_EXPORT TimeTravelMetadataTable : public MetadataTable {
- public:
-  ~TimeTravelMetadataTable() override;
-
-  /// \brief Return true because this interface supports time travel.
-  bool supports_time_travel() const noexcept final;
-
-  /// \brief Scan using the current snapshot on the main branch.
-  Result<ArrowArrayStream> Scan() final;
-
-  /// \brief Scan using the requested snapshot selection.
-  ///
-  /// \param snapshot_selection Snapshot ID, timestamp, and optional ref selection.
-  /// \return An Arrow stream containing the metadata table rows, or an error.
-  Result<ArrowArrayStream> Scan(const SnapshotSelection& snapshot_selection);
-
- protected:
-  explicit TimeTravelMetadataTable(std::shared_ptr<Table> source_table);
-
-  /// \brief Implement a scan for the requested snapshot selection.
-  virtual Result<ArrowArrayStream> ScanSnapshot(
-      const SnapshotSelection& snapshot_selection) = 0;
 };
 
 }  // namespace iceberg

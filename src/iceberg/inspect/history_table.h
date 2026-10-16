@@ -32,6 +32,12 @@
 namespace iceberg {
 
 /// \brief History metadata table.
+///
+/// Scans return one row per snapshot log entry, in log order. The snapshot log records
+/// each change to the table's current snapshot, so a snapshot appears again when a
+/// rollback makes it current again. `is_current_ancestor` is true for the current
+/// snapshot and its ancestors, and false for snapshots a rollback left behind. A log
+/// entry whose snapshot is no longer in the metadata has a null `parent_id`.
 class ICEBERG_EXPORT HistoryTable : public MetadataTable {
  public:
   static Result<std::unique_ptr<HistoryTable>> Make(std::shared_ptr<Table> table);
@@ -42,10 +48,12 @@ class ICEBERG_EXPORT HistoryTable : public MetadataTable {
 
   const std::shared_ptr<Schema>& schema() const override;
 
-  Result<ArrowArrayStream> Scan() override;
-
  private:
   explicit HistoryTable(std::shared_ptr<Table> table);
+
+  Result<std::unique_ptr<MetadataTableScan>> MakeScan(
+      std::shared_ptr<TableMetadata> metadata, std::shared_ptr<FileIO> io,
+      internal::TableScanContext context) const override;
 };
 
 }  // namespace iceberg

@@ -47,6 +47,7 @@ class ICEBERG_EXPORT ScanTask {
   enum class Kind : uint8_t {
     kFileScanTask,
     kChangelogScanTask,
+    kDataTask,
   };
 
   /// \brief The kind of scan task.
@@ -138,6 +139,29 @@ using FileScanTaskStream = Stream<std::shared_ptr<FileScanTask>>;
 
 /// \brief Owning pointer to a file scan task stream.
 using FileScanTaskStreamPtr = std::unique_ptr<FileScanTaskStream>;
+
+/// \brief Stream of rows viewed through StructLike.
+using StructLikeStream = Stream<std::shared_ptr<StructLike>>;
+
+/// \brief A scan task whose rows come from table metadata instead of a data file.
+///
+/// Metadata tables plan data tasks. Rows() exposes the rows without committing to an
+/// in-memory format, so a caller can consume them directly or convert them, for example
+/// to Arrow with ReadDataTasks() in iceberg/data_task_reader.h.
+class ICEBERG_EXPORT DataTask : public ScanTask {
+ public:
+  Kind kind() const override { return Kind::kDataTask; }
+
+  /// \brief The schema of rows returned by Rows().
+  virtual const std::shared_ptr<Schema>& schema() const = 0;
+
+  /// \brief Open a stream over this task's rows.
+  ///
+  /// Each row's fields follow schema() by position. A row, and every value read from
+  /// it, stays valid while the row is alive, even after the stream advances. This task
+  /// must outlive the returned stream.
+  virtual Result<std::unique_ptr<StructLikeStream>> Rows() const = 0;
+};
 
 enum class ChangelogOperation : uint8_t {
   kInsert,
