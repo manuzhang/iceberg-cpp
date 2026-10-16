@@ -27,6 +27,7 @@ set(ICEBERG_SOURCES
     catalog/session_catalog.cc
     catalog/session_context.cc
     data_table_scan.cc
+    data_task_reader.cc
     delete_file_index.cc
     deletes/dv_util.cc
     deletes/dv_writer.cc
@@ -59,7 +60,10 @@ set(ICEBERG_SOURCES
     incremental_changelog_scan.cc
     inspect/history_table.cc
     inspect/metadata_table.cc
+    inspect/metadata_table_reader.cc
+    inspect/metadata_table_scan.cc
     inspect/snapshots_table.cc
+    inspect/static_data_task_internal.cc
     inheritable_metadata.cc
     json_serde.cc
     location_provider.cc

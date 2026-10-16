@@ -47,3 +47,9 @@ target_link_libraries(demo_example
                       PRIVATE "$<IF:$<TARGET_EXISTS:iceberg::iceberg_bundle_shared>,iceberg::iceberg_bundle_shared,iceberg::iceberg_bundle_static>"
                               "$<IF:$<TARGET_EXISTS:iceberg::iceberg_rest_shared>,iceberg::iceberg_rest_shared,iceberg::iceberg_rest_static>"
 )
+
+add_executable(metadata_table_example metadata_table_example.cc)
+
+target_link_libraries(metadata_table_example
+                      PRIVATE "$<IF:$<TARGET_EXISTS:iceberg::iceberg_bundle_shared>,iceberg::iceberg_bundle_shared,iceberg::iceberg_bundle_static>"
+)
