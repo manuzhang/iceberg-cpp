@@ -23,6 +23,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <arrow/array.h>
@@ -32,7 +33,12 @@
 #include <gtest/gtest.h>
 
 #include "iceberg/constants.h"
+#include "iceberg/data_task_reader.h"
 #include "iceberg/inspect/metadata_table.h"
+#include "iceberg/inspect/metadata_table_reader.h"
+#include "iceberg/row/struct_like.h"
+#include "iceberg/snapshot.h"
+#include "iceberg/table_scan.h"
 #include "iceberg/test/matchers.h"
 #include "iceberg/test/metadata_table_test_base.h"
 
@@ -75,9 +81,80 @@ TEST_F(SnapshotsTableTest, Construct) {
   EXPECT_NE(snapshots_table_->schema(), nullptr);
 }
 
+TEST_F(SnapshotsTableTest, PlanFilesReturnsOneDataTask) {
+  ICEBERG_UNWRAP_OR_FAIL(auto scan, snapshots_table_->NewScan()->Build());
+  ICEBERG_UNWRAP_OR_FAIL(auto tasks, scan->PlanFiles());
+  ASSERT_EQ(tasks.size(), 1);
+  EXPECT_EQ(tasks[0]->kind(), ScanTask::Kind::kDataTask);
+  EXPECT_EQ(tasks[0]->estimated_row_count(), 2);
+  EXPECT_EQ(tasks[0]->schema(), snapshots_table_->schema());
+
+  ICEBERG_UNWRAP_OR_FAIL(auto rows, tasks[0]->Rows());
+  ICEBERG_UNWRAP_OR_FAIL(auto all_rows, rows->ToVector());
+  ASSERT_EQ(all_rows.size(), 2);
+  ICEBERG_UNWRAP_OR_FAIL(auto snapshot_id, all_rows[1]->GetField(1));
+  EXPECT_EQ(std::get<int64_t>(snapshot_id), 2);
+  ICEBERG_UNWRAP_OR_FAIL(auto parent_id, all_rows[0]->GetField(2));
+  EXPECT_TRUE(std::holds_alternative<std::monostate>(parent_id));
+  ICEBERG_UNWRAP_OR_FAIL(auto summary, all_rows[1]->GetField(5));
+  EXPECT_EQ(std::get<std::shared_ptr<MapLike>>(summary)->size(), 10);
+}
+
+TEST_F(SnapshotsTableTest, ScanSelectedColumns) {
+  ICEBERG_UNWRAP_OR_FAIL(
+      auto scan,
+      snapshots_table_->NewScan()->Select({"operation", "snapshot_id"}).Build());
+  ICEBERG_UNWRAP_OR_FAIL(auto stream, ReadMetadataTable(*scan));
+  ICEBERG_UNWRAP_OR_FAIL(auto batches, ReadAllBatches(std::move(stream)));
+  ASSERT_EQ(batches.size(), 1);
+  const auto& batch = batches.front();
+  ASSERT_EQ(batch->num_columns(), 2);
+  EXPECT_EQ(batch->schema()->field(0)->name(), "snapshot_id");
+  EXPECT_EQ(batch->schema()->field(1)->name(), "operation");
+
+  auto snapshot_ids = std::static_pointer_cast<::arrow::Int64Array>(batch->column(0));
+  EXPECT_EQ(snapshot_ids->Value(0), 1);
+  EXPECT_EQ(snapshot_ids->Value(1), 2);
+  auto operations = std::static_pointer_cast<::arrow::StringArray>(batch->column(1));
+  EXPECT_EQ(operations->GetString(0), "append");
+  EXPECT_EQ(operations->GetString(1), "append");
+}
+
+TEST_F(SnapshotsTableTest, ScanSelectedMapColumn) {
+  ICEBERG_UNWRAP_OR_FAIL(auto scan,
+                         snapshots_table_->NewScan()->Select({"summary"}).Build());
+  ICEBERG_UNWRAP_OR_FAIL(auto stream, ReadMetadataTable(*scan));
+  ICEBERG_UNWRAP_OR_FAIL(auto batches, ReadAllBatches(std::move(stream)));
+  ASSERT_EQ(batches.size(), 1);
+  ASSERT_EQ(batches.front()->num_columns(), 1);
+  auto summaries =
+      std::static_pointer_cast<::arrow::MapArray>(batches.front()->column(0));
+  EXPECT_THAT(GetMapEntries(summaries, 1),
+              ::testing::Contains(::testing::Pair("total-records", "2")));
+}
+
+TEST_F(SnapshotsTableTest, ScanRejectsTimeTravel) {
+  EXPECT_THAT(snapshots_table_->NewScan()->UseSnapshot(1).Build(),
+              HasErrorMessage("does not support time travel"));
+  EXPECT_THAT(snapshots_table_->NewScan()->AsOfTime(9876543210000).Build(),
+              HasErrorMessage("does not support time travel"));
+  EXPECT_THAT(
+      snapshots_table_->NewScan()->UseRef(std::string(SnapshotRef::kMainBranch)).Build(),
+      IsOk());
+}
+
+TEST_F(SnapshotsTableTest, ReadMetadataTableUsesBatchSize) {
+  ICEBERG_UNWRAP_OR_FAIL(auto scan, snapshots_table_->NewScan()->Build());
+  ICEBERG_UNWRAP_OR_FAIL(auto stream, ReadMetadataTable(*scan, /*batch_size=*/1));
+  ICEBERG_UNWRAP_OR_FAIL(auto batches, ReadAllBatches(std::move(stream)));
+  ASSERT_EQ(batches.size(), 2);
+  EXPECT_EQ(batches[0]->num_rows(), 1);
+  EXPECT_EQ(batches[1]->num_rows(), 1);
+}
+
 TEST_F(SnapshotsTableTest, Scan) {
   // Scan the snapshots table once and verify all columns of the result.
-  ICEBERG_UNWRAP_OR_FAIL(auto stream, snapshots_table_->Scan());
+  ICEBERG_UNWRAP_OR_FAIL(auto stream, ScanToArrowStream(*snapshots_table_));
   ICEBERG_UNWRAP_OR_FAIL(auto batches, ReadAllBatches(std::move(stream)));
   ASSERT_EQ(batches.size(), 1);
   const auto& batch = batches.front();
@@ -141,7 +218,7 @@ TEST_F(SnapshotsTableTest, ScanEmptySnapshotList) {
   ICEBERG_UNWRAP_OR_FAIL(snapshots_table_,
                          MetadataTable::Make<SnapshotsTable>(empty_table));
 
-  ICEBERG_UNWRAP_OR_FAIL(auto stream, snapshots_table_->Scan());
+  ICEBERG_UNWRAP_OR_FAIL(auto stream, ScanToArrowStream(*snapshots_table_));
   ICEBERG_UNWRAP_OR_FAIL(auto batches, ReadAllBatches(std::move(stream)));
   EXPECT_TRUE(batches.empty());
 }
@@ -153,7 +230,7 @@ TEST_F(SnapshotsTableTest, ScanSkipsNullSnapshots) {
   ICEBERG_UNWRAP_OR_FAIL(auto snapshots_table,
                          MetadataTable::Make<SnapshotsTable>(table));
 
-  ICEBERG_UNWRAP_OR_FAIL(auto stream, snapshots_table->Scan());
+  ICEBERG_UNWRAP_OR_FAIL(auto stream, ScanToArrowStream(*snapshots_table));
   ICEBERG_UNWRAP_OR_FAIL(auto batches, ReadAllBatches(std::move(stream)));
   ASSERT_EQ(batches.size(), 1);
   EXPECT_EQ(batches.front()->num_rows(), 2);
@@ -170,7 +247,7 @@ TEST_F(SnapshotsTableTest, ScanEmptySummary) {
   ICEBERG_UNWRAP_OR_FAIL(auto snapshots_table,
                          MetadataTable::Make<SnapshotsTable>(table));
 
-  ICEBERG_UNWRAP_OR_FAIL(auto stream, snapshots_table->Scan());
+  ICEBERG_UNWRAP_OR_FAIL(auto stream, ScanToArrowStream(*snapshots_table));
   ICEBERG_UNWRAP_OR_FAIL(auto batches, ReadAllBatches(std::move(stream)));
   ASSERT_EQ(batches.size(), 1);
   auto summaries =
@@ -182,30 +259,30 @@ TEST_F(SnapshotsTableTest, ScanEmptySummary) {
 
 TEST_F(SnapshotsTableTest, ScanReturnsMultipleBatches) {
   auto snapshot = MakeTestSnapshots().first;
-  std::vector<std::shared_ptr<Snapshot>> snapshots(MetadataTable::kBatchSize + 1,
+  std::vector<std::shared_ptr<Snapshot>> snapshots(kDefaultDataTaskBatchSize + 1,
                                                    snapshot);
   ICEBERG_UNWRAP_OR_FAIL(auto table, MakeTableWithSnapshots(std::move(snapshots),
                                                             /*current_snapshot_id=*/1));
   ICEBERG_UNWRAP_OR_FAIL(auto snapshots_table,
                          MetadataTable::Make<SnapshotsTable>(table));
 
-  ICEBERG_UNWRAP_OR_FAIL(auto stream, snapshots_table->Scan());
+  ICEBERG_UNWRAP_OR_FAIL(auto stream, ScanToArrowStream(*snapshots_table));
   ICEBERG_UNWRAP_OR_FAIL(auto batches, ReadAllBatches(std::move(stream)));
   ASSERT_EQ(batches.size(), 2);
-  EXPECT_EQ(batches[0]->num_rows(), MetadataTable::kBatchSize);
+  EXPECT_EQ(batches[0]->num_rows(), kDefaultDataTaskBatchSize);
   EXPECT_EQ(batches[1]->num_rows(), 1);
 }
 
 TEST_F(SnapshotsTableTest, ScanUsesMetadataCapturedAtCreation) {
   auto snapshot = MakeTestSnapshots().first;
-  std::vector<std::shared_ptr<Snapshot>> snapshots(MetadataTable::kBatchSize + 1,
+  std::vector<std::shared_ptr<Snapshot>> snapshots(kDefaultDataTaskBatchSize + 1,
                                                    snapshot);
   ICEBERG_UNWRAP_OR_FAIL(auto table, MakeTableWithSnapshots(std::move(snapshots),
                                                             /*current_snapshot_id=*/1));
   ICEBERG_UNWRAP_OR_FAIL(auto snapshots_table,
                          MetadataTable::Make<SnapshotsTable>(table));
 
-  ICEBERG_UNWRAP_OR_FAIL(auto stream, snapshots_table->Scan());
+  ICEBERG_UNWRAP_OR_FAIL(auto stream, ScanToArrowStream(*snapshots_table));
   auto reader_result = ::arrow::ImportRecordBatchReader(&stream);
   ASSERT_TRUE(reader_result.ok()) << reader_result.status().ToString();
   auto reader = std::move(reader_result).ValueUnsafe();
@@ -213,7 +290,7 @@ TEST_F(SnapshotsTableTest, ScanUsesMetadataCapturedAtCreation) {
   auto first_batch_result = reader->Next();
   ASSERT_TRUE(first_batch_result.ok()) << first_batch_result.status().ToString();
   ASSERT_NE(*first_batch_result, nullptr);
-  EXPECT_EQ((*first_batch_result)->num_rows(), MetadataTable::kBatchSize);
+  EXPECT_EQ((*first_batch_result)->num_rows(), kDefaultDataTaskBatchSize);
 
   ICEBERG_UNWRAP_OR_FAIL(
       auto refreshed_table,

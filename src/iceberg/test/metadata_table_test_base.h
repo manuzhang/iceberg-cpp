@@ -20,7 +20,7 @@
 /// \file metadata_table_test_base.h
 /// Shared test base for all metadata table tests.
 ///
-/// Provides common helpers (ReadAllBatches, MakeTestSnapshots,
+/// Provides common helpers (ScanToArrowStream, ReadAllBatches, MakeTestSnapshots,
 /// MakeTableWithSnapshots) and the MockFileIO + MockCatalog fixture that
 /// every metadata table test needs.
 
@@ -39,6 +39,8 @@
 #include <gtest/gtest.h>
 
 #include "iceberg/constants.h"
+#include "iceberg/inspect/metadata_table.h"
+#include "iceberg/inspect/metadata_table_reader.h"
 #include "iceberg/schema.h"
 #include "iceberg/schema_field.h"
 #include "iceberg/schema_internal.h"
@@ -50,6 +52,7 @@
 #include "iceberg/test/mock_catalog.h"
 #include "iceberg/test/mock_io.h"
 #include "iceberg/type.h"
+#include "iceberg/util/macros.h"
 #include "iceberg/util/timepoint.h"
 
 namespace iceberg {
@@ -80,7 +83,13 @@ class MetadataTableTestBase : public ::testing::Test {
                                                "s3://bucket/meta.json", io_, catalog_));
   }
 
-  /// \brief Import and consume a Scan()-produced ArrowArrayStream.
+  /// \brief Read every column of a metadata table with a default scan.
+  static Result<ArrowArrayStream> ScanToArrowStream(const MetadataTable& table) {
+    ICEBERG_ASSIGN_OR_RAISE(auto scan, table.NewScan()->Build());
+    return ReadMetadataTable(*scan);
+  }
+
+  /// \brief Import and consume an ArrowArrayStream.
   static Result<std::vector<std::shared_ptr<::arrow::RecordBatch>>> ReadAllBatches(
       ArrowArrayStream&& stream) {
     auto reader_result = ::arrow::ImportRecordBatchReader(&stream);

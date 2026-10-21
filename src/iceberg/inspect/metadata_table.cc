@@ -22,6 +22,8 @@
 #include <memory>
 #include <utility>
 
+#include "iceberg/table.h"
+
 namespace iceberg {
 
 MetadataTable::MetadataTable(std::shared_ptr<Table> source_table)
@@ -35,20 +37,9 @@ const std::shared_ptr<Table>& MetadataTable::source_table() const {
   return source_table_;
 }
 
-TimeTravelMetadataTable::TimeTravelMetadataTable(std::shared_ptr<Table> source_table)
-    : MetadataTable(std::move(source_table)) {}
-
-TimeTravelMetadataTable::~TimeTravelMetadataTable() = default;
-
-bool TimeTravelMetadataTable::supports_time_travel() const noexcept { return true; }
-
-Result<ArrowArrayStream> TimeTravelMetadataTable::Scan() {
-  return ScanSnapshot(SnapshotSelection{});
-}
-
-Result<ArrowArrayStream> TimeTravelMetadataTable::Scan(
-    const SnapshotSelection& snapshot_selection) {
-  return ScanSnapshot(snapshot_selection);
+std::unique_ptr<MetadataTableScanBuilder> MetadataTable::NewScan() const {
+  return std::unique_ptr<MetadataTableScanBuilder>(new MetadataTableScanBuilder(
+      *this, source_table_->metadata(), source_table_->io()));
 }
 
 }  // namespace iceberg
