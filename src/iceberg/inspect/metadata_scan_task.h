@@ -42,6 +42,8 @@ class ICEBERG_EXPORT MetadataScanTask {
     kStatic,
     /// SnapshotMetadataTask reads snapshot manifests and their file entries.
     kSnapshot,
+    /// Experimental manifest-sized data-file metadata work (parallel PoC).
+    kManifestEntries,
   };
 
   virtual ~MetadataScanTask() = default;
