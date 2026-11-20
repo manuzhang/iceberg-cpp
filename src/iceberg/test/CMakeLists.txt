@@ -207,6 +207,7 @@ if(ICEBERG_BUILD_BUNDLE)
                    USE_BUNDLE
                    SOURCES
                    inspect/metadata_snapshot_scan_test.cc
+                   inspect/parallel_metadata_poc_test.cc
                    inspect/history_table_test.cc
                    inspect/metadata_table_test.cc
                    inspect/refs_table_test.cc
